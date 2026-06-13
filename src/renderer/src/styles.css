@@ -69,3 +69,62 @@ body {
 table.proc { width: 100%; border-collapse: collapse; font-size: 12px; }
 table.proc th { text-align: left; color: #777; font-weight: normal; padding: 2px 4px; }
 table.proc td { padding: 2px 4px; color: #bbb; border-top: 1px solid #2a2a2a; }
+
+/* connection status in top bar */
+.conn-info { color: #9cdcfe; font-family: monospace; }
+
+/* floating windows */
+.float-win {
+  position: fixed; z-index: 100;
+  background: #252526; border: 1px solid #3c3c3c; border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .5);
+  display: flex; flex-direction: column;
+  min-width: 280px;
+}
+.float-win-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 10px; background: #2d2d2d; border-bottom: 1px solid #3c3c3c;
+  border-radius: 6px 6px 0 0; cursor: move; color: #ddd; user-select: none;
+}
+.float-win-close {
+  background: none; border: none; color: #999; cursor: pointer;
+  font-size: 16px; line-height: 1; padding: 0 4px;
+}
+.float-win-close:hover { color: #fff; }
+.float-win-body { padding: 10px; overflow: auto; max-height: 70vh; }
+
+/* server list panel (悬浮窗1) */
+.srv-empty { color: #777; padding: 16px 0; text-align: center; }
+.srv-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 4px; border-bottom: 1px solid #2e2e2e;
+}
+.srv-item:hover { background: #2a2d2e; }
+.srv-name { color: #ddd; }
+.srv-addr { color: #888; font-size: 12px; font-family: monospace; }
+.srv-actions { display: flex; align-items: center; gap: 8px; }
+.srv-actions button {
+  background: #0e639c; border: none; color: #fff;
+  padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;
+}
+.srv-actions button:disabled { opacity: .5; cursor: default; }
+.srv-actions a { color: #4ec9b0; cursor: pointer; }
+.srv-footer { margin-top: 8px; text-align: center; }
+.srv-footer button {
+  background: #0e639c; border: none; color: #fff;
+  padding: 5px 14px; border-radius: 4px; cursor: pointer;
+}
+
+/* new connection form (悬浮窗2) */
+.conn-form { display: flex; flex-direction: column; gap: 8px; min-width: 220px; }
+.conn-form label { display: flex; flex-direction: column; gap: 3px; color: #aaa; font-size: 12px; }
+.conn-form input {
+  background: #3c3c3c; border: 1px solid #555; color: #ddd;
+  padding: 5px 8px; border-radius: 4px;
+}
+.conn-actions { display: flex; gap: 8px; margin-top: 6px; }
+.conn-actions button {
+  background: #0e639c; border: none; color: #fff;
+  padding: 5px 10px; border-radius: 4px; cursor: pointer; flex: 1;
+}
+.conn-actions button:disabled { opacity: .5; cursor: default; }

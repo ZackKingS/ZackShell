@@ -1,13 +1,15 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join, basename, posix } from 'path'
 import { SessionManager } from './ssh/SessionManager'
+import { SessionStore } from './store/SessionStore'
 import { log, LOG_FILE_PATH } from './logger'
 import {
   IPC,
   type SshCredentials,
   type ConnectResult,
   type ListResult,
-  type SimpleResult
+  type SimpleResult,
+  type SessionSaveInput
 } from '@shared/types'
 
 let win: BrowserWindow | null = null
@@ -24,6 +26,21 @@ const sessions = new SessionManager({
   },
   onMetrics: (sessionId, m) => win?.webContents.send(IPC.monitorUpdate, { sessionId, metrics: m })
 })
+
+const sessionStore = new SessionStore()
+
+async function doConnect(creds: SshCredentials, cols: number, rows: number): Promise<ConnectResult> {
+  log.info('connect ->', `${creds.username}@${creds.host}:${creds.port}`)
+  try {
+    const sessionId = await sessions.connect(creds, cols, rows)
+    log.info('connect OK, sessionId=', sessionId)
+    return { ok: true, sessionId }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    log.error('connect FAIL:', msg)
+    return { ok: false, error: msg }
+  }
+}
 
 function createWindow(): void {
   log.info('createWindow: 创建主窗口')
@@ -76,18 +93,8 @@ function createWindow(): void {
 // ---------- session / terminal ----------
 ipcMain.handle(
   IPC.sessionConnect,
-  async (_e, p: { creds: SshCredentials; cols: number; rows: number }): Promise<ConnectResult> => {
-    log.info('IPC connect ->', `${p.creds.username}@${p.creds.host}:${p.creds.port}`)
-    try {
-      const sessionId = await sessions.connect(p.creds, p.cols, p.rows)
-      log.info('IPC connect OK, sessionId=', sessionId)
-      return { ok: true, sessionId }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      log.error('IPC connect FAIL:', msg)
-      return { ok: false, error: msg }
-    }
-  }
+  async (_e, p: { creds: SshCredentials; cols: number; rows: number }): Promise<ConnectResult> =>
+    doConnect(p.creds, p.cols, p.rows)
 )
 ipcMain.on(IPC.terminalInput, (_e, p: { sessionId: string; data: string }) =>
   sessions.write(p.sessionId, p.data)
@@ -100,6 +107,33 @@ ipcMain.on(IPC.sessionDisconnect, (_e, p: { sessionId: string }) => {
   log.info('IPC disconnect', p.sessionId)
   sessions.disconnect(p.sessionId)
 })
+
+// ---------- saved sessions ----------
+ipcMain.handle(IPC.sessionsList, async () => ({ ok: true, sessions: sessionStore.list() }))
+
+ipcMain.handle(IPC.sessionsSave, async (_e, input: SessionSaveInput) => {
+  try {
+    return { ok: true, session: sessionStore.save(input) }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    log.error('IPC sessionsSave FAIL:', msg)
+    return { ok: false, error: msg }
+  }
+})
+
+ipcMain.handle(IPC.sessionsDelete, async (_e, p: { id: string }): Promise<SimpleResult> => {
+  sessionStore.delete(p.id)
+  return { ok: true }
+})
+
+ipcMain.handle(
+  IPC.sessionsConnect,
+  async (_e, p: { id: string; cols: number; rows: number }): Promise<ConnectResult> => {
+    const creds = sessionStore.getCredentials(p.id)
+    if (!creds) return { ok: false, error: '会话不存在' }
+    return doConnect(creds, p.cols, p.rows)
+  }
+)
 
 // ---------- monitor ----------
 ipcMain.on(IPC.monitorStart, (_e, p: { sessionId: string; intervalMs?: number }) => {

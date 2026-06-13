@@ -5,7 +5,10 @@ import {
   type ConnectResult,
   type ListResult,
   type SimpleResult,
-  type Metrics
+  type Metrics,
+  type SessionSaveInput,
+  type SessionsResult,
+  type SessionSaveResult
 } from '@shared/types'
 
 // Whitelisted API exposed to the renderer. The renderer never touches
@@ -51,7 +54,15 @@ const api = {
   deletePath: (sessionId: string, path: string, isDir: boolean): Promise<SimpleResult> =>
     ipcRenderer.invoke(IPC.sftpDelete, { sessionId, path, isDir }),
   mkdir: (sessionId: string, path: string): Promise<SimpleResult> =>
-    ipcRenderer.invoke(IPC.sftpMkdir, { sessionId, path })
+    ipcRenderer.invoke(IPC.sftpMkdir, { sessionId, path }),
+
+  // saved sessions
+  listSessions: (): Promise<SessionsResult> => ipcRenderer.invoke(IPC.sessionsList),
+  saveSession: (input: SessionSaveInput): Promise<SessionSaveResult> =>
+    ipcRenderer.invoke(IPC.sessionsSave, input),
+  deleteSession: (id: string): Promise<SimpleResult> => ipcRenderer.invoke(IPC.sessionsDelete, { id }),
+  connectSaved: (id: string, cols: number, rows: number): Promise<ConnectResult> =>
+    ipcRenderer.invoke(IPC.sessionsConnect, { id, cols, rows })
 }
 
 contextBridge.exposeInMainWorld('api', api)

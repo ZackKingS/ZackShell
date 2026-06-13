@@ -37,6 +37,36 @@ export interface SimpleResult {
   info?: string
 }
 
+// ---- Saved sessions ----
+export interface SessionConfig {
+  id: string
+  name: string
+  host: string
+  port: number
+  username: string
+}
+
+export interface SessionSaveInput {
+  id?: string // omit = create new
+  name: string
+  host: string
+  port: number
+  username: string
+  password?: string // empty when editing = keep existing stored secret
+}
+
+export interface SessionsResult {
+  ok: boolean
+  sessions?: SessionConfig[]
+  error?: string
+}
+
+export interface SessionSaveResult {
+  ok: boolean
+  session?: SessionConfig
+  error?: string
+}
+
 // ---- Monitoring ----
 export interface Metrics {
   cpu: number // 0..100
@@ -64,6 +94,11 @@ export const IPC = {
   sftpUpload: 'sftp:upload',
   sftpDelete: 'sftp:delete',
   sftpMkdir: 'sftp:mkdir',
+
+  sessionsList: 'sessions:list',
+  sessionsSave: 'sessions:save',
+  sessionsDelete: 'sessions:delete',
+  sessionsConnect: 'sessions:connect',
 
   monitorStart: 'monitor:start',
   monitorStop: 'monitor:stop',
