@@ -18,6 +18,9 @@ export default defineConfig({
     resolve: {
       alias: { '@shared': resolve(__dirname, 'src/shared') }
     },
+    server: {
+      host: '127.0.0.1'
+    },
     build: {
       rollupOptions: { input: resolve(__dirname, 'src/renderer/index.html') }
     },

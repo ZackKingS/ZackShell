@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ConnectResult, Metrics, SessionConfig, SessionSaveInput, SshCredentials } from '@shared/types'
 import TerminalView from './components/TerminalView'
 import FileManager from './components/FileManager'
@@ -6,19 +6,23 @@ import MonitorPanel from './components/MonitorPanel'
 import ServerListPanel from './components/ServerListPanel'
 import NewConnectionPanel from './components/NewConnectionPanel'
 
-type Status = 'idle' | 'connecting' | 'connected' | 'closed' | 'error'
-type Tab = 'terminal' | 'files'
+type View = 'terminal' | 'files'
+
+interface ConnTab {
+  sessionId: string
+  host: string
+  port: string
+  username: string
+  status: 'connected' | 'closed'
+  metrics: Metrics | null
+  view: View
+}
 
 export default function App(): JSX.Element {
-  const [host, setHost] = useState('')
-  const [port, setPort] = useState('')
-  const [username, setUsername] = useState('')
-  const [status, setStatus] = useState<Status>('idle')
-  const [error, setError] = useState('')
-  const [sessionId, setSessionId] = useState<string | null>(null)
-  const [tab, setTab] = useState<Tab>('terminal')
-  const [metrics, setMetrics] = useState<Metrics | null>(null)
-  const sid = useRef<string | null>(null)
+  const [tabs, setTabs] = useState<ConnTab[]>([])
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [connecting, setConnecting] = useState(false)
+  const [connectError, setConnectError] = useState('')
 
   // 已保存服务器列表 + 两个悬浮窗的显示状态
   const [sessionsList, setSessionsList] = useState<SessionConfig[]>([])
@@ -28,16 +32,11 @@ export default function App(): JSX.Element {
   const [formError, setFormError] = useState('')
 
   useEffect(() => {
-    const offClosed = window.api.onClosed((s) => {
-      if (s === sid.current) {
-        setStatus('closed')
-        setSessionId(null)
-        setMetrics(null)
-        sid.current = null
-      }
+    const offClosed = window.api.onClosed((sid) => {
+      setTabs((prev) => prev.map((t) => (t.sessionId === sid ? { ...t, status: 'closed', metrics: null } : t)))
     })
-    const offMetrics = window.api.onMetrics((s, m) => {
-      if (s === sid.current) setMetrics(m)
+    const offMetrics = window.api.onMetrics((sid, m) => {
+      setTabs((prev) => prev.map((t) => (t.sessionId === sid ? { ...t, metrics: m } : t)))
     })
     return () => {
       offClosed()
@@ -54,42 +53,57 @@ export default function App(): JSX.Element {
     refreshSessions()
   }, [])
 
-  function applyConnectResult(res: ConnectResult, host: string, port: number, username: string): void {
+  function addTab(sessionId: string, host: string, port: number, username: string): void {
+    const tab: ConnTab = {
+      sessionId,
+      host,
+      port: String(port),
+      username,
+      status: 'connected',
+      metrics: null,
+      view: 'terminal'
+    }
+    setTabs((prev) => [...prev, tab])
+    setActiveId(sessionId)
+    window.api.startMonitor(sessionId, 2000)
+    setShowList(false)
+    setEditing(undefined)
+  }
+
+  function applyConnectResult(
+    res: ConnectResult,
+    host: string,
+    port: number,
+    username: string
+  ): string | undefined {
     if (res.ok && res.sessionId) {
       console.log('[App] 连接成功', res.sessionId)
-      sid.current = res.sessionId
-      setSessionId(res.sessionId)
-      setStatus('connected')
-      setHost(host)
-      setPort(String(port))
-      setUsername(username)
-      window.api.startMonitor(res.sessionId, 2000)
-      setShowList(false)
-      setEditing(undefined)
-    } else {
-      console.error('[App] 连接失败', res.error)
-      setStatus('error')
-      setError(res.error ?? 'unknown error')
+      addTab(res.sessionId, host, port, username)
+      return undefined
     }
+    console.error('[App] 连接失败', res.error)
+    return res.error ?? 'unknown error'
   }
 
   async function doConnect(creds: SshCredentials): Promise<void> {
     console.log('[App] 发起连接', `${creds.username}@${creds.host}:${creds.port}`)
-    setStatus('connecting')
-    setError('')
+    setConnecting(true)
+    setConnectError('')
     setFormError('')
     const res = await window.api.connect(creds, 80, 24)
-    applyConnectResult(res, creds.host, creds.port, creds.username)
+    setConnecting(false)
+    const err = applyConnectResult(res, creds.host, creds.port, creds.username)
+    if (err) setFormError(err)
   }
 
   async function connectSaved(s: SessionConfig): Promise<void> {
     console.log('[App] 发起连接(已保存)', `${s.username}@${s.host}:${s.port}`)
     setConnectingId(s.id)
-    setStatus('connecting')
-    setError('')
+    setConnectError('')
     const res = await window.api.connectSaved(s.id, 80, 24)
     setConnectingId(null)
-    applyConnectResult(res, s.host, s.port, s.username)
+    const err = applyConnectResult(res, s.host, s.port, s.username)
+    if (err) setConnectError(err)
   }
 
   async function saveSession(input: SessionSaveInput): Promise<void> {
@@ -120,53 +134,89 @@ export default function App(): JSX.Element {
     await refreshSessions()
   }
 
-  function disconnect(): void {
-    if (sid.current) window.api.disconnect(sid.current)
-    sid.current = null
-    setSessionId(null)
-    setMetrics(null)
-    setStatus('idle')
+  function closeTab(sessionId: string): void {
+    window.api.disconnect(sessionId)
+    window.api.stopMonitor(sessionId)
+    setTabs((prev) => {
+      const idx = prev.findIndex((t) => t.sessionId === sessionId)
+      const next = prev.filter((t) => t.sessionId !== sessionId)
+      if (activeId === sessionId) {
+        const fallback = next[Math.min(idx, next.length - 1)]
+        setActiveId(fallback ? fallback.sessionId : null)
+      }
+      return next
+    })
   }
 
-  const connected = status === 'connected'
+  function setActiveView(view: View): void {
+    setTabs((prev) => prev.map((t) => (t.sessionId === activeId ? { ...t, view } : t)))
+  }
+
+  const activeTab = tabs.find((t) => t.sessionId === activeId)
 
   return (
     <div className="app">
       <div className="bar">
         <strong className="logo">ZackShell</strong>
-        <button onClick={() => setShowList(true)}>会话列表</button>
-        {connected && (
-          <span className="conn-info">
-            {username}@{host}:{port}
-          </span>
-        )}
-        {connected && <button onClick={disconnect}>断开</button>}
-        <span className="status">
-          {status === 'connected' && '● 已连接'}
-          {status === 'idle' && '○ 未连接'}
-          {status === 'connecting' && '◐ 连接中'}
-          {status === 'closed' && '○ 已断开'}
-          {status === 'error' && <span className="err">✕ {error}</span>}
-        </span>
+        <div className="conn-tabs">
+          {tabs.map((t) => (
+            <div
+              key={t.sessionId}
+              className={`conn-tab${t.sessionId === activeId ? ' on' : ''}`}
+              onClick={() => setActiveId(t.sessionId)}
+            >
+              <span className={t.status === 'connected' ? 'dot on' : 'dot off'}>●</span>
+              <span className="conn-tab-label">{t.username}@{t.host}</span>
+              <span
+                className="conn-tab-close"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  closeTab(t.sessionId)
+                }}
+              >
+                ×
+              </span>
+            </div>
+          ))}
+          <button className="conn-tab-add" title="新建连接" onClick={() => setShowList(true)}>
+            +
+          </button>
+        </div>
+        {connecting && <span className="status mid">◐ 连接中</span>}
+        {connectError && <span className="status err">✕ {connectError}</span>}
       </div>
 
       <div className="main">
-        <div className="workspace">
-          <div className="tabs">
-            <div className={tab === 'terminal' ? 'tab on' : 'tab'} onClick={() => setTab('terminal')}>终端</div>
-            <div className={tab === 'files' ? 'tab on' : 'tab'} onClick={() => setTab('files')}>文件</div>
-          </div>
-          <div className="tab-body">
-            <div style={{ display: tab === 'terminal' ? 'block' : 'none', height: '100%' }}>
-              <TerminalView sessionId={sessionId} visible={tab === 'terminal'} />
-            </div>
-            <div style={{ display: tab === 'files' ? 'block' : 'none', height: '100%' }}>
-              <FileManager sessionId={sessionId} visible={tab === 'files'} />
-            </div>
-          </div>
-        </div>
         <div className="monitor-pane">
-          <MonitorPanel metrics={metrics} />
+          <MonitorPanel metrics={activeTab?.metrics ?? null} host={activeTab?.host ?? ''} />
+        </div>
+        <div className="workspace">
+          {activeTab ? (
+            <>
+              <div className="tabs">
+                <div className={activeTab.view === 'terminal' ? 'tab on' : 'tab'} onClick={() => setActiveView('terminal')}>
+                  终端
+                </div>
+                <div className={activeTab.view === 'files' ? 'tab on' : 'tab'} onClick={() => setActiveView('files')}>
+                  文件
+                </div>
+              </div>
+              <div className="tab-body">
+                {tabs.map((t) => (
+                  <div key={t.sessionId} style={{ display: t.sessionId === activeId ? 'block' : 'none', height: '100%' }}>
+                    <div style={{ display: t.view === 'terminal' ? 'block' : 'none', height: '100%' }}>
+                      <TerminalView sessionId={t.sessionId} visible={t.sessionId === activeId && t.view === 'terminal'} />
+                    </div>
+                    <div style={{ display: t.view === 'files' ? 'block' : 'none', height: '100%' }}>
+                      <FileManager sessionId={t.sessionId} visible={t.sessionId === activeId && t.view === 'files'} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="workspace-empty">还没有连接,点击右上角「+」新建连接</div>
+          )}
         </div>
       </div>
 
@@ -190,7 +240,7 @@ export default function App(): JSX.Element {
       {editing !== undefined && (
         <NewConnectionPanel
           initial={editing}
-          busy={status === 'connecting'}
+          busy={connecting}
           error={formError}
           onCancel={() => setEditing(undefined)}
           onConnect={doConnect}

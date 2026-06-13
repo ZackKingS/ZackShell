@@ -90,10 +90,11 @@ export default function FileManager({ sessionId, visible }: Props): JSX.Element 
         <table>
           <thead>
             <tr>
-              <th style={{ width: '40%' }}>名称</th>
+              <th style={{ width: '34%' }}>名称</th>
               <th>大小</th>
-              <th>权限</th>
+              <th>类型</th>
               <th>修改时间</th>
+              <th>权限</th>
               <th>操作</th>
             </tr>
           </thead>
@@ -102,8 +103,9 @@ export default function FileManager({ sessionId, visible }: Props): JSX.Element 
               <tr key={e.name} onDoubleClick={() => enter(e)}>
                 <td>{e.isDir ? '📁 ' : '📄 '}{e.name}</td>
                 <td>{e.isDir ? '-' : fmtBytes(e.size)}</td>
-                <td className="mono">{e.permissions}</td>
+                <td>{e.isDir ? '文件夹' : '文件'}</td>
                 <td>{fmtTime(e.mtime)}</td>
+                <td className="mono">{e.permissions}</td>
                 <td className="fm-actions">
                   {!e.isDir && <a onClick={() => download(e)}>下载</a>}
                   <a onClick={() => del(e)}>删除</a>

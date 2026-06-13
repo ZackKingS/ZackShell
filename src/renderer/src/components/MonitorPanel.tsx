@@ -4,6 +4,7 @@ import { fmtBytes, fmtBps, fmtUptime } from '../util/format'
 
 interface Props {
   metrics: Metrics | null
+  host?: string
 }
 
 function Bar({ pct, danger }: { pct: number; danger?: boolean }): JSX.Element {
@@ -18,18 +19,18 @@ function Bar({ pct, danger }: { pct: number; danger?: boolean }): JSX.Element {
 // Tiny inline sparkline for network history.
 function Spark({ data, color }: { data: number[]; color: string }): JSX.Element {
   const max = Math.max(1, ...data)
-  const w = 260
-  const h = 36
+  const w = 240
+  const h = 30
   const step = data.length > 1 ? w / (data.length - 1) : w
   const pts = data.map((v, i) => `${i * step},${h - (v / max) * h}`).join(' ')
   return (
-    <svg width={w} height={h} className="spark">
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="spark">
       <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" />
     </svg>
   )
 }
 
-export default function MonitorPanel({ metrics }: Props): JSX.Element {
+export default function MonitorPanel({ metrics, host }: Props): JSX.Element {
   const rxHist = useRef<number[]>([])
   const txHist = useRef<number[]>([])
 
@@ -44,78 +45,107 @@ export default function MonitorPanel({ metrics }: Props): JSX.Element {
     push(txHist.current, net?.txBps ?? 0)
   }, [metrics, net])
 
-  if (!metrics) {
-    return <div className="mon mon-empty">连接后显示服务器监控…</div>
+  async function copyIp(): Promise<void> {
+    if (host) await navigator.clipboard.writeText(host)
   }
 
-  const memPct = metrics.mem.total ? (metrics.mem.used / metrics.mem.total) * 100 : 0
-  const swapPct = metrics.swap.total ? (metrics.swap.used / metrics.swap.total) * 100 : 0
+  const memPct = metrics?.mem.total ? (metrics.mem.used / metrics.mem.total) * 100 : 0
+  const swapPct = metrics?.swap.total ? (metrics.swap.used / metrics.swap.total) * 100 : 0
 
   return (
     <div className="mon">
-      <div className="card">
-        <div className="card-title">系统信息</div>
-        <div className="kv">负载 <b>{metrics.load.join(' / ')}</b></div>
-        <div className="kv">运行 <b>{fmtUptime(metrics.uptimeSec)}</b></div>
-        <div className="kv">CPU 核心 <b>{metrics.cores}</b></div>
-      </div>
-
-      <div className="card">
-        <div className="card-title">CPU <span className="pct">{metrics.cpu.toFixed(1)}%</span></div>
-        <Bar pct={metrics.cpu} />
-      </div>
-
-      <div className="card">
-        <div className="card-title">内存 <span className="pct">{fmtBytes(metrics.mem.used)} / {fmtBytes(metrics.mem.total)}</span></div>
-        <Bar pct={memPct} />
-        {metrics.swap.total > 0 && (
-          <>
-            <div className="card-sub">交换 {fmtBytes(metrics.swap.used)} / {fmtBytes(metrics.swap.total)}</div>
-            <Bar pct={swapPct} />
-          </>
+      <div className="mon-ip-row">
+        <span className="mon-ip">{host || '未连接'}</span>
+        {host && (
+          <button className="mon-copy" onClick={copyIp}>
+            复制
+          </button>
         )}
       </div>
 
-      <div className="card">
-        <div className="card-title">
-          网络 {net?.iface ?? ''}
-          <span className="pct">↓{fmtBps(net?.rxBps ?? 0)} ↑{fmtBps(net?.txBps ?? 0)}</span>
-        </div>
-        <Spark data={rxHist.current} color="#61afef" />
-        <Spark data={txHist.current} color="#c678dd" />
-      </div>
+      {!metrics ? (
+        <div className="mon-empty">连接后显示服务器监控…</div>
+      ) : (
+        <>
+          <div className="mon-stat-row">
+            <span>运行</span>
+            <b>{fmtUptime(metrics.uptimeSec)}</b>
+          </div>
+          <div className="mon-stat-row">
+            <span>负载</span>
+            <b>{metrics.load.join(', ')}</b>
+          </div>
 
-      <div className="card">
-        <div className="card-title">磁盘</div>
-        {metrics.disks.map((d) => {
-          const pct = d.total ? (d.used / d.total) * 100 : 0
-          return (
-            <div key={d.mount} className="disk">
-              <div className="disk-head">
-                <span>{d.mount}</span>
-                <span>{fmtBytes(d.used)} / {fmtBytes(d.total)}</span>
-              </div>
-              <Bar pct={pct} />
+          <div className="mon-bar-row">
+            <span className="mon-bar-label">CPU</span>
+            <Bar pct={metrics.cpu} />
+            <span className="mon-bar-val">{metrics.cpu.toFixed(0)}%</span>
+          </div>
+          <div className="mon-bar-row">
+            <span className="mon-bar-label">内存</span>
+            <Bar pct={memPct} />
+            <span className="mon-bar-val">
+              {fmtBytes(metrics.mem.used)}/{fmtBytes(metrics.mem.total)}
+            </span>
+          </div>
+          {metrics.swap.total > 0 && (
+            <div className="mon-bar-row">
+              <span className="mon-bar-label">交换</span>
+              <Bar pct={swapPct} />
+              <span className="mon-bar-val">
+                {fmtBytes(metrics.swap.used)}/{fmtBytes(metrics.swap.total)}
+              </span>
             </div>
-          )
-        })}
-      </div>
+          )}
 
-      <div className="card">
-        <div className="card-title">进程 (内存占用 Top)</div>
-        <table className="proc">
-          <thead>
-            <tr><th>PID</th><th>名称</th><th>CPU%</th><th>内存%</th></tr>
-          </thead>
-          <tbody>
-            {metrics.procs.slice(0, 8).map((p) => (
-              <tr key={p.pid}>
-                <td>{p.pid}</td><td>{p.name}</td><td>{p.cpu.toFixed(1)}</td><td>{p.mem.toFixed(1)}</td>
+          <table className="proc">
+            <thead>
+              <tr>
+                <th>内存</th>
+                <th>CPU</th>
+                <th>命令</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {metrics.procs.slice(0, 8).map((p) => (
+                <tr key={p.pid}>
+                  <td>{p.mem.toFixed(1)}%</td>
+                  <td>{p.cpu.toFixed(1)}</td>
+                  <td>{p.name}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div className="mon-net-head">
+            <span>
+              ↑{fmtBps(net?.txBps ?? 0)} ↓{fmtBps(net?.rxBps ?? 0)}
+            </span>
+            <span className="mon-net-iface">{net?.iface ?? ''}</span>
+          </div>
+          <Spark data={rxHist.current} color="#61afef" />
+          <Spark data={txHist.current} color="#c678dd" />
+
+          <table className="disk-table">
+            <thead>
+              <tr>
+                <th>路径</th>
+                <th>可用/大小</th>
+              </tr>
+            </thead>
+            <tbody>
+              {metrics.disks.map((d) => (
+                <tr key={d.mount}>
+                  <td className="mono">{d.mount}</td>
+                  <td>
+                    {fmtBytes(d.total - d.used)}/{fmtBytes(d.total)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
     </div>
   )
 }
